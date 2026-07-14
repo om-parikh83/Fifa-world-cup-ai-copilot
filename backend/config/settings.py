@@ -25,7 +25,12 @@ SECRET_KEY = 'django-insecure-w(3%h@*8e^3gq3))#^7im6-)^rzf#i8dtb(9lr^9a5$m7loq0u
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [""]
+import os
+
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'fifa-world-cup-ai-copilot.onrender.com']
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 
 # Application definition
