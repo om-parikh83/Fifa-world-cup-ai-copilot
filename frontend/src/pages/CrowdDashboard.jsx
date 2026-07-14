@@ -7,8 +7,9 @@ import AlertPanel from '../components/crowd/AlertPanel';
 import KPICard from '../components/dashboard/KPICard';
 import ChartCard from '../components/dashboard/ChartCard';
 import { generateCrowdTimeline, getDensityColor } from '../utils/helpers';
+import api from '../services/api';
 
-const GATE_STATUS = [
+const FALLBACK_GATE_STATUS = [
   { gate: 'Gate 1 — VIP',    status: 'open',     queue: 2,  flow: 340 },
   { gate: 'Gate 3 — North',  status: 'busy',     queue: 18, flow: 580 },
   { gate: 'Gate 5 — South',  status: 'critical', queue: 34, flow: 820 },
@@ -18,18 +19,42 @@ const GATE_STATUS = [
 ];
 
 export default function CrowdDashboard() {
+  const [gateStatus, setGateStatus] = useState(FALLBACK_GATE_STATUS);
   const [timeline, setTimeline] = useState(() => generateCrowdTimeline(8));
   const [selectedSection, setSelectedSection] = useState(null);
   const [totalAttendance, setTotalAttendance] = useState(68420);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [apiError, setApiError] = useState(false);
 
-  const refresh = () => {
+  const refresh = async () => {
     setTimeline(generateCrowdTimeline(8));
-    setTotalAttendance(prev => prev + Math.floor(Math.random() * 200 - 50));
     setLastUpdated(new Date());
+    try {
+      const res = await api.get('/crowd/analytics/');
+      const data = res.data;
+      if (data.zones && data.zones.length > 0) {
+        const mapped = data.zones.map(z => ({
+          gate: z.zone,
+          status: z.status === 'heavy' || z.density_pct > 80 ? 'critical'
+                : z.status === 'busy' || z.density_pct > 50 ? 'busy'
+                : 'open',
+          queue: z.queue_wait_minutes,
+          flow: z.estimated_count,
+        }));
+        setGateStatus(mapped);
+        setApiError(false);
+      }
+      // Simulate attendance from crowd data
+      if (data.avg_density_pct) {
+        setTotalAttendance(Math.round(data.avg_density_pct * 820));
+      }
+    } catch {
+      setApiError(true);
+    }
   };
 
   useEffect(() => {
+    refresh();
     const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -106,7 +131,7 @@ export default function CrowdDashboard() {
 
         <ChartCard title="Gate Status" index={3}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            {GATE_STATUS.map(gate => (
+            {gateStatus.map(gate => (
               <div key={gate.gate} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
                 <span className={`pulse-dot ${gate.status === 'open' ? 'green' : gate.status === 'busy' ? 'yellow' : 'red'}`} />
                 <span style={{ flex: 1, fontSize: '0.8rem', fontWeight: 500 }}>{gate.gate}</span>

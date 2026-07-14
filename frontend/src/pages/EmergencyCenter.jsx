@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { AlertTriangle, Radio, Phone, Shield, Clock, MapPin, Siren } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
@@ -20,10 +20,23 @@ const STATUS_COLORS = {
   unavailable: '#FF3D57',
 };
 
+import api from '../services/api';
+
 export default function EmergencyCenter() {
-  const [activeIncidents] = useState(2);
+  const [activeIncidents, setActiveIncidents] = useState(0);
   const [responseTime] = useState(3.2);
   const [staffDeployed] = useState(18);
+
+  useEffect(() => {
+    api.get('/emergency/report/')
+      .then(res => {
+        if (res.data && res.data.reports) {
+          const active = res.data.reports.filter(r => r.status !== 'resolved');
+          setActiveIncidents(active.length);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const kpis = [
     { icon: AlertTriangle, title: 'Active Incidents', value: activeIncidents.toString(), unit: '', color: '#FF3D57', index: 0, subtitle: '2 require immediate action' },

@@ -38,13 +38,12 @@ export default function AIAssistant() {
         ))}
       </div>
 
-      <div className="grid-sidebar-left" style={{ height: 'calc(100vh - 260px)', minHeight: 500 }}>
+      <div className="ai-assistant-container">
         {/* Main Chat */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass-card"
-          style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}
+          className="glass-card ai-chat-card"
         >
           <ChatInterface />
         </motion.div>

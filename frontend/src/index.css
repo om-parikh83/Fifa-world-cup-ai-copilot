@@ -1411,3 +1411,33 @@ body {
   background: rgba(0, 212, 255, 0.3);
   border-radius: 10px;
 }
+
+/* ============================================
+   AI ASSISTANT RESPONSIVE CLASSES
+   ============================================ */
+.ai-assistant-container {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 1.5rem;
+  height: calc(100vh - 260px);
+  min-height: 500px;
+}
+
+.ai-chat-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+@media (max-width: 1024px) {
+  .ai-assistant-container {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: auto;
+  }
+
+  .ai-chat-card {
+    height: 500px;
+  }
+}

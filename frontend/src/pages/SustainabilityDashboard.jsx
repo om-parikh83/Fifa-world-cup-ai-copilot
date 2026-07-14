@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Leaf, Zap, Droplets, Recycle, Sun, TreeDeciduous, Car, Award } from 'lucide-react';
+import { Leaf, Zap, Droplets, Recycle, Sun, TreeDeciduous, Car, Award, RefreshCw } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
 import ChartCard from '../components/dashboard/ChartCard';
 import { ECO_METRICS } from '../utils/constants';
 import { getEcoGrade } from '../utils/helpers';
 import { RadialBarChart, RadialBar, ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
+import api from '../services/api';
 
 const MONTHLY_CARBON = [
   { month: 'Jun', carbon: 8200, target: 9000, saved: 800 },
@@ -14,22 +15,57 @@ const MONTHLY_CARBON = [
   { month: 'Sep', carbon: 5200, target: 7000, saved: 1800 },
 ];
 
-const ECO_GOALS = [
-  { label: 'Renewable Energy',  current: ECO_METRICS.renewableEnergy, target: 80,  color: '#FFB300', icon: Sun },
-  { label: 'Waste Recycled',    current: ECO_METRICS.wasteRecycled,   target: 80,  color: '#00C853', icon: Recycle },
-  { label: 'Water Recycled',    current: ECO_METRICS.waterRecycled,   target: 70,  color: '#00D4FF', icon: Droplets },
-  { label: 'Carbon Reduction',  current: 62,                           target: 75,  color: '#7850ff', icon: Leaf },
-];
-
 export default function SustainabilityDashboard() {
-  const overallScore = Math.round((ECO_METRICS.renewableEnergy + ECO_METRICS.wasteRecycled + ECO_METRICS.waterRecycled + 62) / 4);
+  const [ecoData, setEcoData] = useState({
+    carbonSaved: ECO_METRICS.carbonSaved,
+    renewableEnergy: ECO_METRICS.renewableEnergy,
+    wasteRecycled: ECO_METRICS.wasteRecycled,
+    waterRecycled: ECO_METRICS.waterRecycled,
+    treesPlanted: ECO_METRICS.treesPlanted,
+    evCount: ECO_METRICS.electricVehicles,
+    solarKwh: ECO_METRICS.solarPanels * 0.3,
+    ecoScore: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/sustainability/metrics/')
+      .then(res => {
+        const items = res.data?.results || res.data;
+        if (Array.isArray(items) && items.length > 0) {
+          const latest = items[0];
+          setEcoData({
+            carbonSaved: latest.carbon_saved_tonnes || ECO_METRICS.carbonSaved,
+            renewableEnergy: latest.renewable_energy_pct || ECO_METRICS.renewableEnergy,
+            wasteRecycled: latest.waste_recycled_pct || ECO_METRICS.wasteRecycled,
+            waterRecycled: latest.water_recycled_pct || ECO_METRICS.waterRecycled,
+            treesPlanted: latest.trees_planted || ECO_METRICS.treesPlanted,
+            evCount: latest.ev_count || ECO_METRICS.electricVehicles,
+            solarKwh: latest.solar_kwh || ECO_METRICS.solarPanels * 0.3,
+            ecoScore: latest.eco_score || 0,
+          });
+        }
+      })
+      .catch(() => {}) // fall back to defaults
+      .finally(() => setLoading(false));
+  }, []);
+
+  const overallScore = ecoData.ecoScore
+    || Math.round((ecoData.renewableEnergy + ecoData.wasteRecycled + ecoData.waterRecycled + 62) / 4);
   const { grade, color: gradeColor } = getEcoGrade(overallScore);
 
+  const ECO_GOALS = [
+    { label: 'Renewable Energy', current: ecoData.renewableEnergy, target: 80, color: '#FFB300', icon: Sun },
+    { label: 'Waste Recycled',   current: ecoData.wasteRecycled,   target: 80, color: '#00C853', icon: Recycle },
+    { label: 'Water Recycled',   current: ecoData.waterRecycled,   target: 70, color: '#00D4FF', icon: Droplets },
+    { label: 'Carbon Reduction', current: 62,                       target: 75, color: '#7850ff', icon: Leaf },
+  ];
+
   const kpis = [
-    { icon: Leaf,          title: 'Carbon Saved',     rawValue: ECO_METRICS.carbonSaved, unit: ' t CO₂',  color: '#00C853', index: 0, subtitle: 'vs diesel baseline' },
-    { icon: Sun,           title: 'Renewable Energy', value: `${ECO_METRICS.renewableEnergy}`, unit: '%', color: '#FFB300', index: 1, change: 12, positive: true },
-    { icon: Recycle,       title: 'Waste Recycled',   value: `${ECO_METRICS.wasteRecycled}`,   unit: '%', color: '#0066FF', index: 2, change: 8, positive: true },
-    { icon: TreeDeciduous, title: 'Trees Planted',    rawValue: ECO_METRICS.treesPlanted,      unit: '',  color: '#00C853', index: 3 },
+    { icon: Leaf,          title: 'Carbon Saved',     rawValue: ecoData.carbonSaved,      unit: ' t CO₂',  color: '#00C853', index: 0, subtitle: 'vs diesel baseline' },
+    { icon: Sun,           title: 'Renewable Energy', value: `${ecoData.renewableEnergy}`, unit: '%',       color: '#FFB300', index: 1, change: 12, positive: true },
+    { icon: Recycle,       title: 'Waste Recycled',   value: `${ecoData.wasteRecycled}`,   unit: '%',       color: '#0066FF', index: 2, change: 8, positive: true },
+    { icon: TreeDeciduous, title: 'Trees Planted',    rawValue: ecoData.treesPlanted,      unit: '',        color: '#00C853', index: 3 },
   ];
 
   return (
@@ -119,10 +155,10 @@ export default function SustainabilityDashboard() {
       <ChartCard title="Green Initiatives" index={2}>
         <div className="grid-responsive-4">
           {[
-            { icon: '☀️', label: 'Solar Panels',        value: `${ECO_METRICS.solarPanels.toLocaleString()}`, unit: 'panels installed' },
-            { icon: '🚗', label: 'Electric Vehicles',   value: ECO_METRICS.electricVehicles.toString(),       unit: 'EVs in operation' },
-            { icon: '🧴', label: 'Plastic Avoided',     value: '850K',                                        unit: 'bottles eliminated' },
-            { icon: '💧', label: 'Water Recycled',      value: `${ECO_METRICS.waterRecycled}%`,               unit: 'via greywater system' },
+            { icon: '☀️', label: 'Solar KWh',          value: Math.round(ecoData.solarKwh).toLocaleString(),   unit: 'kWh generated today' },
+            { icon: '🚗', label: 'Electric Vehicles',   value: ecoData.evCount.toString(),                       unit: 'EVs in operation' },
+            { icon: '🧴', label: 'Plastic Avoided',     value: '850K',                                            unit: 'bottles eliminated' },
+            { icon: '💧', label: 'Water Recycled',      value: `${ecoData.waterRecycled}%`,                      unit: 'via greywater system' },
           ].map((item, i) => (
             <motion.div key={item.label} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.08 }}
               style={{ textAlign: 'center', padding: '1.25rem', background: 'rgba(0,200,83,0.05)', border: '1px solid rgba(0,200,83,0.2)', borderRadius: 12 }}>

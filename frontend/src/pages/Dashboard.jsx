@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity, Users, Car, Train, AlertTriangle, Trophy,
-  TrendingUp, ArrowUp, ArrowDown, Zap, Shield, Clock
+  TrendingUp, ArrowUp, ArrowDown, Zap, Shield, Clock, RefreshCw
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import api from '../services/api';
 
 const CROWD_DATA = [
   { time: '12:00', density: 28, parking: 45, transport: 120 },
@@ -22,7 +23,7 @@ const CROWD_DATA = [
   { time: '19:00', density: 55, parking: 60, transport: 250 },
 ];
 
-const GATE_STATUS = [
+const FALLBACK_GATE_STATUS = [
   { gate: 'Gate 1 — VIP', status: 'open', queue: 2 },
   { gate: 'Gate 3 — North', status: 'busy', queue: 18 },
   { gate: 'Gate 5 — South', status: 'critical', queue: 34 },
@@ -31,10 +32,8 @@ const GATE_STATUS = [
   { gate: 'Gate 11 — Media', status: 'busy', queue: 12 },
 ];
 
-const MATCH_DATA = [
-  { flag: '🇧🇷', home: 'Brazil', away: 'Argentina', flag2: '🇦🇷', time: '16:00', stadium: 'MetLife', group: 'Group C', status: 'live', score: '2-1' },
-  { flag: '🇫🇷', home: 'France',  away: 'Germany',   flag2: '🇩🇪', time: '19:00', stadium: 'SoFi',    group: 'Group E', status: 'upcoming', score: '-' },
-  { flag: '🇺🇸', home: 'USA',     away: 'Mexico',    flag2: '🇲🇽', time: '22:00', stadium: 'AT&T',    group: 'Group A', status: 'upcoming', score: '-' },
+const FALLBACK_MATCH_DATA = [
+  { home_team_detail: { flag: '🇧🇷', name: 'Brazil' }, away_team_detail: { flag: '🇦🇷', name: 'Argentina' }, kickoff_time: '16:00', venue_detail: { name: 'MetLife Stadium' }, stage: 'Group Stage', status: 'live', score_display: '2-1' },
 ];
 
 const NATIONALITY_DATA = [
@@ -45,11 +44,10 @@ const NATIONALITY_DATA = [
   { name: 'Other', value: 20, color: '#7850ff' },
 ];
 
-const ALERTS = [
+const FALLBACK_ALERTS = [
   { type: 'danger',  msg: '🚨 Gate 5 — Critical congestion. Redirect fans to Gate 7.', time: '2 min ago' },
   { type: 'warning', msg: '⚠️ Parking Zone P-A2 reaching 90% capacity.', time: '5 min ago' },
   { type: 'info',    msg: '📣 Metro Line 2 — Extended service until 01:00 AM.', time: '8 min ago' },
-  { type: 'success', msg: '✅ Emergency drill completed. All exits clear.', time: '15 min ago' },
 ];
 
 const StatCard = ({ icon: Icon, title, value, change, unit = '', color, positive = true }) => (
@@ -76,7 +74,88 @@ const StatCard = ({ icon: Icon, title, value, change, unit = '', color, positive
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  // API states
+  const [attendance, setAttendance] = useState('68,420');
+  const [parkingAvailable, setParkingAvailable] = useState('1,847');
+  const [activeIncidents, setActiveIncidents] = useState('2');
+  const [matches, setMatches] = useState(FALLBACK_MATCH_DATA);
+  const [gates, setGates] = useState(FALLBACK_GATE_STATUS);
+  const [alerts, setAlerts] = useState(FALLBACK_ALERTS);
+
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      // 1. Fetch Parking
+      const parkingRes = await api.get('/parking/availability/');
+      if (parkingRes.data) {
+        const avail = parkingRes.data.total_available ?? parkingRes.data.zones?.reduce((s, z) => s + (z.total - z.occupied), 0);
+        if (avail !== undefined) setParkingAvailable(avail.toLocaleString());
+      }
+    } catch (e) {}
+
+    try {
+      // 2. Fetch Crowd / Gate Status
+      const crowdRes = await api.get('/crowd/analytics/');
+      if (crowdRes.data) {
+        const data = crowdRes.data;
+        if (data.zones) {
+          const mappedGates = data.zones.map(z => ({
+            gate: z.zone,
+            status: z.status === 'heavy' || z.density_pct > 80 ? 'critical'
+                  : z.status === 'busy' || z.density_pct > 50 ? 'busy'
+                  : 'open',
+            queue: z.queue_wait_minutes
+          }));
+          setGates(mappedGates);
+        }
+        if (data.avg_density_pct) {
+          // total attendance simulation
+          const totalFans = Math.round(data.avg_density_pct * 820);
+          setAttendance(totalFans.toLocaleString());
+        }
+      }
+    } catch (e) {}
+
+    try {
+      // 3. Fetch Matches
+      const matchesRes = await api.get('/stadium/matches/');
+      if (matchesRes.data && matchesRes.data.length > 0) {
+        setMatches(matchesRes.data);
+      }
+    } catch (e) {}
+
+    try {
+      // 4. Fetch Emergency / Active incidents
+      const emergencyRes = await api.get('/emergency/report/');
+      if (emergencyRes.data && emergencyRes.data.reports) {
+        const active = emergencyRes.data.reports.filter(r => r.status !== 'resolved');
+        setActiveIncidents(active.length.toString());
+
+        const mappedAlerts = emergencyRes.data.reports.slice(0, 4).map(r => ({
+          type: r.priority === 'high' || r.priority === 'critical' ? 'danger' : 'warning',
+          msg: `${r.priority === 'high' || r.priority === 'critical' ? '🚨' : '⚠️'} ${r.type.toUpperCase()}: ${r.description} (${r.location_details})`,
+          time: new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }));
+        if (mappedAlerts.length > 0) {
+          setAlerts(mappedAlerts);
+        }
+      }
+    } catch (e) {}
+
+    setLoading(false);
+    setLastUpdated(new Date());
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const liveMatch = matches.find(m => m.status === 'live') || matches[0];
 
   return (
     <div className="page-wrapper">
@@ -88,12 +167,15 @@ export default function Dashboard() {
             Welcome back, <span className="text-gradient">{user?.name?.split(' ')[0] || 'Fan'}</span>
           </h1>
           <p style={{ color: 'var(--text-secondary)', marginTop: '0.35rem', fontSize: '0.9rem' }}>
-            Tuesday, July 8, 2026 · MetLife Stadium — Match Day 14
+            Live MetLife Stadium Dashboard · Last updated: {lastUpdated.toLocaleTimeString()}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={fetchDashboardData} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.85rem', fontSize: '0.75rem' }}>
+            <RefreshCw size={12} className={loading ? 'spin' : ''} /> Refresh
+          </button>
           <span className="badge badge-danger">
-            <span className="pulse-dot red" style={{ marginRight: 2 }} /> 1 Live Match
+            <span className="pulse-dot red" style={{ marginRight: 2 }} /> {matches.filter(m => m.status === 'live').length} Live Match
           </span>
           <span className="badge badge-info">78% Capacity</span>
           <span className="badge badge-success">All Systems OK</span>
@@ -103,13 +185,13 @@ export default function Dashboard() {
       {/* KPI Cards */}
       <div className="grid-responsive-4" style={{ marginBottom: '2rem' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <StatCard icon={Users} title="Current Attendance" value="68,420" unit=" fans" change={12} color="#0066FF" positive={true} />
+          <StatCard icon={Users} title="Current Attendance" value={attendance} unit=" fans" change={12} color="#0066FF" positive={true} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-          <StatCard icon={Car} title="Parking Available" value="1,847" unit=" spots" change={8} color="#00C853" positive={false} />
+          <StatCard icon={Car} title="Parking Available" value={parkingAvailable} unit=" spots" change={8} color="#00C853" positive={false} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
-          <StatCard icon={AlertTriangle} title="Active Incidents" value="2" unit="" change={50} color="#FF3D57" positive={false} />
+          <StatCard icon={AlertTriangle} title="Active Incidents" value={activeIncidents} unit="" change={50} color="#FF3D57" positive={false} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }}>
           <StatCard icon={Activity} title="AI Interactions" value="14,200" unit="" change={23} color="#FFB300" positive={true} />
@@ -121,30 +203,32 @@ export default function Dashboard() {
         {/* Live Match */}
         <div className="glass-card" style={{ padding: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <h3 className="heading-md">Live Match</h3>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.65rem', background: 'rgba(255,61,87,0.15)', border: '1px solid rgba(255,61,87,0.4)', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: '#FF3D57' }}>
-              <span className="pulse-dot red" /> LIVE
+            <h3 className="heading-md">{liveMatch?.status === 'live' ? 'Live Match' : 'Next Match'}</h3>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.65rem', background: liveMatch?.status === 'live' ? 'rgba(255,61,87,0.15)' : 'rgba(0,102,255,0.15)', border: liveMatch?.status === 'live' ? '1px solid rgba(255,61,87,0.4)' : '1px solid rgba(0,102,255,0.4)', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: liveMatch?.status === 'live' ? '#FF3D57' : '#0066FF' }}>
+              <span className={`pulse-dot ${liveMatch?.status === 'live' ? 'red' : 'green'}`} /> {liveMatch?.status?.toUpperCase()}
             </span>
           </div>
-          {MATCH_DATA.filter(m => m.status === 'live').map((m, i) => (
-            <div key={i} style={{ textAlign: 'center', padding: '1.5rem 0' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 600, letterSpacing: '0.08em', marginBottom: '1rem' }}>{m.group} · {m.stadium}</div>
+          {liveMatch && (
+            <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 600, letterSpacing: '0.08em', marginBottom: '1rem' }}>
+                {liveMatch.group ? `Group ${liveMatch.group}` : liveMatch.stage} · {liveMatch.venue_detail?.name || 'MetLife Stadium'}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', marginBottom: '1rem' }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{m.flag}</div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{m.home}</div>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{liveMatch.home_team_detail?.flag || '⚽'}</div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{liveMatch.home_team_detail?.name}</div>
                 </div>
                 <div style={{ fontFamily: 'Montserrat', fontWeight: 900, fontSize: '3rem', color: 'var(--text-primary)', padding: '0.5rem 1.5rem', background: 'rgba(0,102,255,0.1)', borderRadius: 16 }}>
-                  {m.score}
+                  {liveMatch.score_display || '-'}
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{m.flag2}</div>
-                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{m.away}</div>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{liveMatch.away_team_detail?.flag || '⚽'}</div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{liveMatch.away_team_detail?.name}</div>
                 </div>
               </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>⏱ 67' · Kickoff {m.time}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>⏱ Kickoff {liveMatch.kickoff_time} · {liveMatch.match_date}</div>
             </div>
-          ))}
+          )}
         </div>
 
         {/* Crowd density chart */}
@@ -177,7 +261,7 @@ export default function Dashboard() {
             <Link to="/crowd" style={{ fontSize: '0.8rem', color: 'var(--color-accent)', textDecoration: 'none', fontWeight: 600 }}>View All →</Link>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {GATE_STATUS.map(gate => (
+            {gates.map(gate => (
               <div key={gate.gate} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
                 <span className={`pulse-dot ${gate.status === 'open' ? 'green' : gate.status === 'busy' ? 'yellow' : 'red'}`} />
                 <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }}>{gate.gate}</span>
@@ -221,7 +305,7 @@ export default function Dashboard() {
           <Link to="/emergency" style={{ fontSize: '0.8rem', color: 'var(--color-accent)', textDecoration: 'none', fontWeight: 600 }}>Emergency Center →</Link>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {ALERTS.map((alert, i) => (
+          {alerts.map((alert, i) => (
             <div key={i} className={`alert-banner alert-${alert.type}`}>
               <div style={{ flex: 1 }}>{alert.msg}</div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{alert.time}</div>

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Train, Bus, Clock, Users, ArrowRight, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
 import ChartCard from '../components/dashboard/ChartCard';
 import { TRANSPORT_ROUTES } from '../utils/constants';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import api from '../services/api';
 
 const RIDER_DATA = [
   { time: '12:00', metro: 1200, bus: 450,  shuttle: 180 },
@@ -19,21 +20,54 @@ const RIDER_DATA = [
 
 const STATUS_CFG = {
   running: { color: '#00C853', label: 'RUNNING', icon: CheckCircle },
+  active:  { color: '#00C853', label: 'RUNNING', icon: CheckCircle },
   delayed:  { color: '#FFB300', label: 'DELAYED', icon: AlertTriangle },
   suspended:{ color: '#FF3D57', label: 'SUSPENDED', icon: AlertTriangle },
 };
 
-const TYPE_ICONS = { metro: Train, bus: Bus, shuttle: Users };
+const TYPE_ICONS = { metro: Train, bus: Bus, shuttle: Users, 'shuttle bus': Bus, walking: Users, 'light rail': Train };
 
 export default function TransportDashboard() {
-  const [routes, setRoutes] = useState(TRANSPORT_ROUTES);
+  const [routes, setRoutes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [planFrom, setPlanFrom] = useState('');
   const [planTo, setPlanTo]   = useState('MetLife Stadium');
   const [showPlan, setShowPlan] = useState(false);
 
+  const fetchRoutes = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/transport/schedule/');
+      if (res.data && res.data.transit_options) {
+        const mapped = res.data.transit_options.map((opt, i) => ({
+          id: i,
+          name: opt.line,
+          type: opt.mode.toLowerCase(),
+          from: opt.direction?.split(' → ')?.[0] || 'Origin',
+          to: opt.direction?.split(' → ')?.[1] || 'Destination',
+          duration: opt.interval_minutes * 2 || 15,
+          frequency: opt.interval_minutes,
+          status: opt.status,
+          capacity: opt.status === 'delayed' ? 92 : 65,
+        }));
+        setRoutes(mapped);
+      } else {
+        setRoutes(TRANSPORT_ROUTES);
+      }
+    } catch {
+      setRoutes(TRANSPORT_ROUTES);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRoutes();
+  }, []);
+
   const kpis = [
-    { icon: Train, title: 'Active Routes',   value: routes.filter(r => r.status === 'running').length.toString(), unit: `/${routes.length}`, color: '#0066FF', index: 0 },
+    { icon: Train, title: 'Active Routes',   value: routes.filter(r => r.status === 'running' || r.status === 'active').length.toString(), unit: `/${routes.length}`, color: '#0066FF', index: 0 },
     { icon: Users, title: 'Riders Today',    rawValue: 47280, unit: '',    color: '#00C853', index: 1, change: 18, positive: true },
     { icon: Clock, title: 'Avg Delay',       value: '4.2',  unit: ' min', color: '#FFB300', index: 2 },
     { icon: Bus,   title: 'Capacity Used',   value: '76',   unit: '%',    color: '#7850ff', index: 3, change: 5, positive: true },
@@ -44,15 +78,21 @@ export default function TransportDashboard() {
     setShowPlan(true);
   };
 
+
   return (
     <div className="page-wrapper">
       {/* Header */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <p className="section-label">🚆 Live Transit Intelligence</p>
-        <h1 className="heading-xl">Transport <span className="text-gradient">Hub</span></h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '0.35rem', fontSize: '0.85rem' }}>
-          Real-time status for all transit routes to MetLife Stadium
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <p className="section-label">🚆 Live Transit Intelligence</p>
+          <h1 className="heading-xl">Transport <span className="text-gradient">Hub</span></h1>
+          <p style={{ color: 'var(--text-secondary)', marginTop: '0.35rem', fontSize: '0.85rem' }}>
+            Real-time status for all transit routes to MetLife Stadium
+          </p>
+        </div>
+        <button onClick={fetchRoutes} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', fontSize: '0.8rem' }}>
+          <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+        </button>
       </div>
 
       {/* KPIs */}

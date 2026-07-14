@@ -1,16 +1,9 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import api from '../services/api';
 
 const AuthContext = createContext(null);
 
-// Mock users for demo
-const MOCK_USERS = {
-  'fan@fifa26.com':    { id: 1, name: 'Alex Rodriguez', role: 'fan',       avatar: '⚽', email: 'fan@fifa26.com',    password: 'fan123' },
-  'admin@fifa26.com':  { id: 2, name: 'Sarah Johnson',  role: 'admin',     avatar: '👤', email: 'admin@fifa26.com',  password: 'admin123' },
-  'staff@fifa26.com':  { id: 3, name: 'Mike Thompson',  role: 'staff',     avatar: '🏟️', email: 'staff@fifa26.com',  password: 'staff123' },
-  'security@fifa26.com':{ id:4, name: 'James Wilson',   role: 'security',  avatar: '🛡️', email: 'security@fifa26.com',password: 'sec123' },
-  'volunteer@fifa26.com':{id:5, name: 'Emma Davis',     role: 'volunteer', avatar: '🤝', email: 'volunteer@fifa26.com',password:'vol123' },
-  'medical@fifa26.com':{ id: 6, name: 'Dr. Patel',      role: 'medical',   avatar: '🏥', email: 'medical@fifa26.com', password: 'med123' },
-};
+const API_BASE = import.meta.env.VITE_API_URL || 'https://fifa-world-cup-ai-copilot.onrender.com/api/v1';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -21,32 +14,54 @@ export function AuthProvider({ children }) {
   });
 
   const login = useCallback(async (email, password) => {
-    const found = MOCK_USERS[email.toLowerCase()];
-    if (found && found.password === password) {
-      const userData = { ...found };
-      delete userData.password;
-      setUser(userData);
+    try {
+      const res = await api.post('/auth/login/', { email, password });
+      const { access, refresh, user: userData } = res.data;
+
+      // Store tokens and user profile
+      localStorage.setItem('fifa_token', access);
+      localStorage.setItem('fifa_refresh_token', refresh);
       localStorage.setItem('fifa_user', JSON.stringify(userData));
+      setUser(userData);
       return { success: true, user: userData };
+    } catch (err) {
+      const msg = err.response?.data?.detail
+        || err.response?.data?.error
+        || err.response?.data?.non_field_errors?.[0]
+        || 'Invalid credentials. Please check your email and password.';
+      return { success: false, error: msg };
     }
-    return { success: false, error: 'Invalid credentials. Try fan@fifa26.com / fan123' };
   }, []);
 
   const register = useCallback(async (data) => {
-    const newUser = {
-      id: Date.now(),
-      name: data.name,
-      email: data.email,
-      role: 'fan',
-      avatar: '⚽',
-    };
-    setUser(newUser);
-    localStorage.setItem('fifa_user', JSON.stringify(newUser));
-    return { success: true, user: newUser };
+    try {
+      const res = await api.post('/auth/register/', {
+        username: data.email.split('@')[0],
+        email: data.email,
+        password: data.password,
+        first_name: data.name?.split(' ')[0] || '',
+        last_name: data.name?.split(' ').slice(1).join(' ') || '',
+      });
+      const { access, refresh, user: userData } = res.data;
+      localStorage.setItem('fifa_token', access);
+      localStorage.setItem('fifa_refresh_token', refresh);
+      localStorage.setItem('fifa_user', JSON.stringify(userData));
+      setUser(userData);
+      return { success: true, user: userData };
+    } catch (err) {
+      const errData = err.response?.data || {};
+      const msg = errData.detail
+        || errData.error
+        || Object.values(errData).flat().join(' ')
+        || 'Registration failed. Please try again.';
+      return { success: false, error: msg };
+    }
   }, []);
 
   const logout = useCallback(() => {
     setUser(null);
+    localStorage.removeItem('fifa_token');
+    localStorage.removeItem('fifa_refresh_token');
     localStorage.removeItem('fifa_user');
   }, []);
 
