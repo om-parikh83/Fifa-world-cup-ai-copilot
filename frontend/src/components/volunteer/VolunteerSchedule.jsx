@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Clock, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
-import { getPriorityColor } from '../../utils/helpers';
 import api from '../../services/api';
 
 const PRIORITY_CFG = {
